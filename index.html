@@ -2,17 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>DINO HOCKEY - Zelime's 50th Birthday!</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0a1a;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;flex-direction:column}
+body{background:#0a0a1a;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;flex-direction:column;touch-action:none;user-select:none;-webkit-user-select:none}
 canvas{image-rendering:pixelated;image-rendering:crisp-edges}
 #info{color:#667;font:13px monospace;margin-top:8px;text-align:center}
+.mobile-hide{display:block}
+@media(pointer:coarse){.mobile-hide{display:none}}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="info">ARROWS: Skate | SPACE + Arrows: Shoot | SPACE x2: Slap Shot! | SPACE alone: Pass | SPACE near foe: Steal | Z: Switch</div>
+<div id="info" class="mobile-hide">ARROWS: Skate | SPACE + Arrows: Shoot | SPACE x2: Slap Shot! | SPACE alone: Pass | SPACE near foe: Steal | Z: Switch</div>
 <script>
 // ═══════════════════════════════════════════════════════════
 // SETUP
@@ -24,8 +27,10 @@ const G = game.getContext('2d');
 const GW = 768, GH = 480;
 game.width = GW; game.height = GH;
 
+const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 function resize() {
-  const s = Math.max(1, Math.min((innerWidth - 20) / GW, (innerHeight - 60) / GH));
+  const mobileExtra = isMobileDevice ? 160 : 60;
+  const s = Math.max(1, Math.min((innerWidth - 20) / GW, (innerHeight - mobileExtra) / GH));
   display.width = Math.round(GW * s);
   display.height = Math.round(GH * s);
   dc.imageSmoothingEnabled = false;
@@ -53,6 +58,166 @@ function sfxGoal() { beep(523, 0.15, 'square', 0.1); setTimeout(() => beep(659, 
 function sfxWhistle() { beep(880, 0.4, 'sine', 0.06); }
 function sfxCheck() { beep(150, 0.08, 'sawtooth', 0.1); }
 function sfxBirthday() { [523,523,587,523,698,659].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'square', 0.08), i * 220)); }
+
+// ═══════════════════════════════════════════════════════════
+// 80s RETRO SYNTH MUSIC
+// ═══════════════════════════════════════════════════════════
+let musicPlaying = false;
+let musicNodes = [];
+const BPM = 130;
+const BEAT = 60 / BPM;
+
+function stopMusic() {
+  musicNodes.forEach(n => { try { n.stop(); } catch(e) {} });
+  musicNodes = [];
+  musicPlaying = false;
+}
+
+function startMusic() {
+  if (!ac || musicPlaying) return;
+  musicPlaying = true;
+
+  // Master gain
+  const master = ac.createGain();
+  master.gain.value = 0.12;
+  master.connect(ac.destination);
+
+  const now = ac.currentTime + 0.05;
+  const loopLen = BEAT * 32; // 32 beats per loop
+
+  // --- KICK DRUM (noise burst) ---
+  function schedKick(t) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + 0.08);
+    g.gain.setValueAtTime(0.6, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.15);
+    musicNodes.push(o);
+  }
+
+  // --- HI-HAT (high noise via square) ---
+  function schedHat(t, open) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.value = 6000 + Math.random() * 2000;
+    const dur = open ? 0.12 : 0.04;
+    g.gain.setValueAtTime(open ? 0.15 : 0.1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur);
+    musicNodes.push(o);
+  }
+
+  // --- BASS (square wave, synth bass line) ---
+  function schedBass(t, freq, dur) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.setValueAtTime(0.25, t + dur * 0.5);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur - 0.01);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur);
+    musicNodes.push(o);
+  }
+
+  // --- LEAD (sawtooth, catchy melody) ---
+  function schedLead(t, freq, dur) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sawtooth'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.18, t);
+    g.gain.setValueAtTime(0.12, t + dur * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur - 0.01);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur);
+    musicNodes.push(o);
+  }
+
+  // --- ARP (triangle, sparkly arpeggios) ---
+  function schedArp(t, freq, dur) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur);
+    musicNodes.push(o);
+  }
+
+  function scheduleLoop(startT) {
+    // Kick: four-on-the-floor
+    for (let i = 0; i < 32; i++) {
+      schedKick(startT + i * BEAT);
+    }
+
+    // Hi-hat: 8th notes, open on the &
+    for (let i = 0; i < 64; i++) {
+      schedHat(startT + i * BEAT * 0.5, i % 2 === 1);
+    }
+
+    // Bass line (E minor pentatonic groove, 80s synth-pop)
+    // Pattern: 8 bars of 4 beats
+    const bassNotes = [
+      82, 0, 82, 98,  82, 0, 110, 98,   // E2, _, E2, G2, E2, _, A2, G2
+      82, 0, 82, 98,  110, 123, 110, 98, // E2, _, E2, G2, A2, B2, A2, G2
+      65, 0, 65, 82,  65, 0, 82, 73,     // C2, _, C2, E2, C2, _, E2, D2
+      82, 0, 82, 98,  110, 98, 82, 73,   // E2, _, E2, G2, A2, G2, E2, D2
+    ];
+    bassNotes.forEach((f, i) => {
+      if (f > 0) schedBass(startT + i * BEAT, f, BEAT * 0.85);
+    });
+
+    // Lead melody (catchy 80s hook, higher octave)
+    const leadNotes = [
+      // Bar 1-2: ascending hook
+      [0, 659, 1.5], [1.5, 784, 0.5], [2, 880, 1], [3, 784, 0.5], [3.5, 659, 0.5],
+      // Bar 3-4: response phrase
+      [4, 587, 1], [5, 659, 0.5], [5.5, 784, 0.5], [6, 659, 2],
+      // Bar 5-6: variation
+      [8, 523, 1], [9, 587, 0.5], [9.5, 659, 1], [10.5, 784, 0.5], [11, 880, 1],
+      // Bar 7-8: resolution
+      [12, 784, 1.5], [13.5, 659, 0.5], [14, 587, 1.5], [15.5, 523, 0.5],
+      // Bar 9-12: repeat with octave variation
+      [16, 659, 1], [17, 784, 1], [18, 880, 0.5], [18.5, 988, 0.5], [19, 880, 1],
+      [20, 784, 0.5], [20.5, 659, 0.5], [21, 784, 1], [22, 659, 2],
+      // Bar 13-16: big finish phrase
+      [24, 523, 1], [25, 659, 1], [26, 784, 1], [27, 880, 1],
+      [28, 988, 1.5], [29.5, 880, 0.5], [30, 784, 1.5], [31.5, 659, 0.5],
+    ];
+    leadNotes.forEach(([beat, freq, dur]) => {
+      schedLead(startT + beat * BEAT, freq, dur * BEAT * 0.9);
+    });
+
+    // Arp: 16th note arpeggios on chord tones
+    const arpChords = [
+      [330, 392, 494, 659],  // Em
+      [330, 392, 494, 659],  // Em
+      [262, 330, 392, 523],  // C
+      [330, 392, 494, 659],  // Em
+    ];
+    for (let bar = 0; bar < 4; bar++) {
+      const chord = arpChords[bar];
+      for (let i = 0; i < 32; i++) {
+        const t = startT + (bar * 8 + i * 0.25) * BEAT;
+        schedArp(t, chord[i % chord.length], BEAT * 0.2);
+      }
+    }
+  }
+
+  // Schedule first loop
+  scheduleLoop(now);
+
+  // Re-schedule on a timer to loop continuously
+  musicLoopInterval = setInterval(() => {
+    if (!musicPlaying) { clearInterval(musicLoopInterval); return; }
+    // Clear old nodes
+    musicNodes = musicNodes.filter(n => {
+      try { return n.context.currentTime < n.stop.endTime; } catch(e) { return false; }
+    });
+    scheduleLoop(ac.currentTime + 0.05);
+  }, loopLen * 1000 - 200);
+}
+let musicLoopInterval = null;
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTS
@@ -92,6 +257,195 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.key] = false; });
 function pressed(k) { if (jp[k]) { jp[k] = false; return true; } return false; }
+
+// ═══════════════════════════════════════════════════════════
+// MOBILE TOUCH CONTROLS
+// ═══════════════════════════════════════════════════════════
+const isMobile = isMobileDevice;
+let dpadTouch = null;   // tracking touch ID for d-pad
+let dpadDx = 0, dpadDy = 0; // normalized direction
+const DPAD_R = 50;      // d-pad radius
+let dpadCx = 0, dpadCy = 0; // d-pad center (set on resize)
+
+function updateMobileLayout() {
+  if (!isMobile) return;
+  const r = display.getBoundingClientRect();
+  dpadCx = r.left + 80;
+  dpadCy = r.bottom + 70;
+}
+
+if (isMobile) {
+  // Prevent scrolling/zooming
+  document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+  function getDpadDir(tx, ty) {
+    const dx = tx - dpadCx, dy = ty - dpadCy;
+    const d = Math.hypot(dx, dy);
+    if (d < 12) return { x: 0, y: 0 };
+    return { x: dx / d, y: dy / d };
+  }
+
+  function applyDpad(dir) {
+    // Clear previous d-pad keys
+    keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
+    keys['ArrowUp'] = false; keys['ArrowDown'] = false;
+    // Apply based on direction thresholds
+    if (dir.x < -0.3) keys['ArrowLeft'] = true;
+    if (dir.x > 0.3) keys['ArrowRight'] = true;
+    if (dir.y < -0.3) keys['ArrowUp'] = true;
+    if (dir.y > 0.3) keys['ArrowDown'] = true;
+  }
+
+  display.addEventListener('touchstart', e => {
+    initAudio();
+    for (const t of e.changedTouches) {
+      const tx = t.clientX, ty = t.clientY;
+      const r = display.getBoundingClientRect();
+      // Left half = d-pad, right half = action button
+      if (tx < r.left + r.width / 2) {
+        dpadTouch = t.identifier;
+        // Re-center d-pad on where they put their thumb
+        dpadCx = tx;
+        dpadCy = ty;
+        dpadDx = 0; dpadDy = 0;
+      } else {
+        // Action button = SPACE press
+        jp[' '] = true; keys[' '] = true;
+      }
+    }
+  }, { passive: false });
+
+  display.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === dpadTouch) {
+        const dir = getDpadDir(t.clientX, t.clientY);
+        dpadDx = dir.x; dpadDy = dir.y;
+        applyDpad(dir);
+      }
+    }
+  }, { passive: false });
+
+  function endTouch(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === dpadTouch) {
+        dpadTouch = null; dpadDx = 0; dpadDy = 0;
+        keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
+        keys['ArrowUp'] = false; keys['ArrowDown'] = false;
+      } else {
+        keys[' '] = false;
+      }
+    }
+  }
+  display.addEventListener('touchend', endTouch);
+  display.addEventListener('touchcancel', endTouch);
+
+  // Also handle touches outside canvas for the d-pad area
+  document.addEventListener('touchstart', e => {
+    initAudio();
+    for (const t of e.changedTouches) {
+      if (e.target === display) return; // handled above
+      const r = display.getBoundingClientRect();
+      const tx = t.clientX, ty = t.clientY;
+      if (tx < r.left + r.width / 2) {
+        dpadTouch = t.identifier;
+        dpadCx = tx; dpadCy = ty;
+        dpadDx = 0; dpadDy = 0;
+      } else {
+        jp[' '] = true; keys[' '] = true;
+      }
+    }
+  }, { passive: false });
+  document.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === dpadTouch) {
+        const dir = getDpadDir(t.clientX, t.clientY);
+        dpadDx = dir.x; dpadDy = dir.y;
+        applyDpad(dir);
+      }
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', endTouch);
+  document.addEventListener('touchcancel', endTouch);
+}
+
+function drawMobileControls() {
+  if (!isMobile) return;
+  updateMobileLayout();
+  const r = display.getBoundingClientRect();
+  // Draw on a full-window overlay canvas
+  const pad = 80;
+  const ly = r.bottom + 15;
+
+  // D-pad area (left side)
+  const lx = r.left + pad;
+  dc.save();
+  // We need to draw in screen coords but dc is sized to display canvas
+  // Instead draw below the game canvas using absolute positioned elements
+  dc.restore();
+}
+
+// Create overlay for mobile controls
+let mobileOverlay = null;
+if (isMobile) {
+  mobileOverlay = document.createElement('canvas');
+  mobileOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:10';
+  document.body.appendChild(mobileOverlay);
+
+  function drawOverlay() {
+    const oc = mobileOverlay.getContext('2d');
+    mobileOverlay.width = window.innerWidth;
+    mobileOverlay.height = window.innerHeight;
+    const r = display.getBoundingClientRect();
+
+    // D-pad: draw where thumb is (or default position)
+    const cx = dpadTouch !== null ? dpadCx : r.left + 80;
+    const cy = dpadTouch !== null ? dpadCy : r.bottom + 70;
+
+    // Outer ring
+    oc.beginPath();
+    oc.arc(cx, cy, DPAD_R, 0, Math.PI * 2);
+    oc.fillStyle = 'rgba(255,255,255,0.08)';
+    oc.fill();
+    oc.strokeStyle = 'rgba(255,255,255,0.25)';
+    oc.lineWidth = 2;
+    oc.stroke();
+
+    // Inner nub (shows direction)
+    const nx = cx + dpadDx * DPAD_R * 0.6;
+    const ny = cy + dpadDy * DPAD_R * 0.6;
+    oc.beginPath();
+    oc.arc(nx, ny, 16, 0, Math.PI * 2);
+    oc.fillStyle = 'rgba(255,255,255,0.2)';
+    oc.fill();
+
+    // Action button (right side)
+    const bx = r.right - 80;
+    const by = r.bottom + 70;
+    oc.beginPath();
+    oc.arc(bx, by, 36, 0, Math.PI * 2);
+    oc.fillStyle = keys[' '] ? 'rgba(255,100,50,0.35)' : 'rgba(255,255,255,0.08)';
+    oc.fill();
+    oc.strokeStyle = 'rgba(255,255,255,0.25)';
+    oc.lineWidth = 2;
+    oc.stroke();
+
+    // Button label
+    oc.fillStyle = 'rgba(255,255,255,0.5)';
+    oc.font = 'bold 11px monospace';
+    oc.textAlign = 'center';
+    oc.fillText('ACTION', bx, by + 4);
+
+    // Hint text
+    oc.fillStyle = 'rgba(255,255,255,0.3)';
+    oc.font = '9px monospace';
+    oc.fillText('DRAG TO SKATE', cx, cy + DPAD_R + 18);
+    oc.fillText('TAP: SHOOT/PASS', bx, by + 52);
+    oc.fillText('x2: SLAP SHOT', bx, by + 64);
+
+    requestAnimationFrame(drawOverlay);
+  }
+  drawOverlay();
+}
 
 // ═══════════════════════════════════════════════════════════
 // GAME STATE
@@ -970,9 +1324,13 @@ function slapShot(p, dirX, dirY) {
   const pow = SHOT_SPEED * p.sp.shotPow * 1.8;
   puck.vx = (dx / d) * pow + p.vx * 0.4;
   puck.vy = (dy / d) * pow + p.vy * 0.4;
-  spawnIce(p.x + p.facing * 20, p.y + 5, 12);
-  shakeX = 2; shakeY = 2;
-  sfxShoot();
+  spawnIce(p.x + p.facing * 20, p.y + 5, 20);
+  spawnIce(p.x, p.y + 10, 10);
+  shakeX = 8; shakeY = 8;
+  goalFlash = 8;
+  // Big slap shot sound (lower + louder)
+  beep(200, 0.12, 'sawtooth', 0.15);
+  beep(900, 0.08, 'square', 0.1);
 }
 
 function pass(p) {
@@ -1078,10 +1436,12 @@ function update() {
   }
 
   if (state === 'TITLE') {
+    if (musicPlaying) stopMusic();
     if (pressed(' ')) {
       state = 'FACEOFF'; stateTimer = 0;
       score = [0, 0]; period = 1; clock = 0;
       resetPositions(); sfxWhistle(); sfxBirthday();
+      startMusic();
     }
     return;
   }
@@ -1093,7 +1453,7 @@ function update() {
   if (state === 'GOAL') {
     updateZelime();
     if (stateTimer > 140) {
-      if (score[0] >= WIN_SCORE || score[1] >= WIN_SCORE) { state = 'WIN'; stateTimer = 0; }
+      if (score[0] >= WIN_SCORE || score[1] >= WIN_SCORE) { state = 'WIN'; stateTimer = 0; stopMusic(); }
       else { state = 'FACEOFF'; stateTimer = 0; resetPositions(); sfxWhistle(); }
     }
     return;
@@ -1372,7 +1732,10 @@ function draw() {
     }
 
     G.fillStyle = '#889'; G.font = '10px monospace'; G.textAlign = 'center';
-    G.fillText('First to ' + WIN_SCORE + ' goals wins!', RCX, 460);
+    G.fillText('First to ' + WIN_SCORE + ' goals wins!', RCX, 455);
+
+    G.fillStyle = '#667'; G.font = '8px monospace';
+    G.fillText('By Azat, Zelime & Zayden', RCX, 472);
   }
 
   // ═══ WIN SCREEN ═══
