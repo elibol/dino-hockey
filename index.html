@@ -12,7 +12,7 @@ canvas{image-rendering:pixelated;image-rendering:crisp-edges}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="info">ARROWS: Skate | SPACE + Arrows: Shoot direction | SPACE alone: Pass | SPACE near foe: Steal | Z: Switch</div>
+<div id="info">ARROWS: Skate | SPACE + Arrows: Shoot | SPACE x2: Slap Shot! | SPACE alone: Pass | SPACE near foe: Steal | Z: Switch</div>
 <script>
 // ═══════════════════════════════════════════════════════════
 // SETUP
@@ -59,15 +59,16 @@ function sfxBirthday() { [523,523,587,523,698,659].forEach((f, i) => setTimeout(
 // ═══════════════════════════════════════════════════════════
 const RINK = { x: 32, y: 58, w: 704, h: 390 };
 const RCX = RINK.x + RINK.w / 2, RCY = RINK.y + RINK.h / 2;
-const GOAL_W = 12, GOAL_H = 72;
+const GOAL_W = 14, GOAL_H = 96;
 const GOAL_L = { x: RINK.x - GOAL_W, y: RCY - GOAL_H / 2, w: GOAL_W, h: GOAL_H };
 const GOAL_R = { x: RINK.x + RINK.w, y: RCY - GOAL_H / 2, w: GOAL_W, h: GOAL_H };
-const FRICTION = 0.982;
+const FRICTION = 0.975;
 const PUCK_FRICTION = 0.994;
 const SHOT_SPEED = 6;
 const WIN_SCORE = 5;
-const PLAYER_ACCEL = 0.14;
-const AI_ACCEL = 0.08;
+const PLAYER_ACCEL = 0.09;
+const AI_ACCEL = 0.05;
+const MAX_PLAYER_SPEED = 2.8;
 
 const COL = {
   ice: '#daeaf4', iceDk: '#c8dce8',
@@ -99,6 +100,10 @@ let state = 'TITLE', stateTimer = 0;
 let score = [0, 0], clock = 0, period = 1;
 let shakeX = 0, shakeY = 0, goalFlash = 0, lastGoalTeam = -1;
 let goalScorerName = '';
+let lastSpaceTime = 0;
+let spaceQueued = false;
+let spaceQueueDir = { x: 0, y: 0 };
+const DOUBLE_TAP_MS = 200;
 const particles = [];
 
 const puck = { x: RCX, y: RCY, vx: 0, vy: 0, owner: null, lastShooter: '' };
@@ -123,10 +128,9 @@ function makeTeam(team) {
   const wx = team === 0 ? RCX - 90 : RCX + 90;
   return [
     { role: 'Center',  dino: 'trex',         hx: cx, hy: RCY,       facing: dir, team },
-    { role: 'L.Wing',  dino: 'raptor',       hx: wx, hy: RCY - 100, facing: dir, team },
-    { role: 'R.Wing',  dino: 'pterodactyl',  hx: wx, hy: RCY + 100, facing: dir, team },
-    { role: 'Defense', dino: 'triceratops',  hx: dx, hy: RCY,       facing: dir, team },
-    { role: 'Goalie',  dino: 'ankylosaurus', hx: gx, hy: RCY,       facing: dir, team },
+    { role: 'Wing',    dino: 'raptor',        hx: wx, hy: RCY - 80,  facing: dir, team },
+    { role: 'Defense', dino: 'triceratops',   hx: dx, hy: RCY,       facing: dir, team },
+    { role: 'Goalie',  dino: 'ankylosaurus',  hx: gx, hy: RCY,       facing: dir, team },
   ].map(p => ({ ...p, x: p.hx, y: p.hy, vx: 0, vy: 0, sp: SPECIES[p.dino] }));
 }
 
@@ -491,13 +495,27 @@ function drawZelime(x, y, armRaise, scale) {
 
   // Shadow
   G.fillStyle = 'rgba(0,0,0,0.15)';
-  G.beginPath(); G.ellipse(0, 18, 10, 4, 0, 0, Math.PI * 2); G.fill();
+  G.beginPath(); G.ellipse(0, 20, 10, 4, 0, 0, Math.PI * 2); G.fill();
 
-  // Shoes (white high-tops)
+  // Ice skates (white boot + blade)
+  // Boot
   G.fillStyle = '#fff';
-  G.fillRect(-7, 17, 5, 3); G.fillRect(2, 17, 5, 3);
-  G.fillStyle = '#ddd';
-  G.fillRect(-7, 17, 5, 1); G.fillRect(2, 17, 5, 1);
+  G.fillRect(-7, 16, 5, 4); G.fillRect(2, 16, 5, 4);
+  // Boot top trim
+  G.fillStyle = '#eee';
+  G.fillRect(-7, 16, 5, 1); G.fillRect(2, 16, 5, 1);
+  // Boot laces
+  G.fillStyle = '#ccc';
+  G.fillRect(-5, 17, 1, 2); G.fillRect(4, 17, 1, 2);
+  // Blade holder (dark gray)
+  G.fillStyle = '#555';
+  G.fillRect(-7, 20, 6, 1); G.fillRect(2, 20, 6, 1);
+  // Blade (silver/metallic)
+  G.fillStyle = '#c0c0c0';
+  G.fillRect(-8, 21, 8, 1); G.fillRect(1, 21, 8, 1);
+  // Blade shine
+  G.fillStyle = '#e8e8e8';
+  G.fillRect(-6, 21, 3, 1); G.fillRect(3, 21, 3, 1);
 
   // Leg warmers (neon pink stripes)
   G.fillStyle = '#ff44cc';
@@ -559,64 +577,110 @@ function drawZelime(x, y, armRaise, scale) {
   G.fillStyle = '#ffb088';
   G.fillRect(-2, -12, 4, 4);
 
-  // Head
+  // ── PUFFY PIGTAILS ──
+  G.fillStyle = '#e8c44a';
+  // Top of head hair (flat, parted in middle)
+  G.fillRect(-5, -28, 10, 6);
+  G.fillRect(-4, -29, 8, 2);
+  // Bangs
+  G.fillRect(-3, -23, 6, 2);
+
+  // Left pigtail (puffy ball)
+  G.fillRect(-15, -28, 7, 7);
+  G.fillRect(-16, -26, 9, 4);
+  G.fillRect(-14, -29, 5, 1);
+  // Tie (scrunchie)
+  G.fillStyle = '#ff3399';
+  G.fillRect(-9, -26, 2, 3);
+  // Connector hair from head to pigtail
+  G.fillStyle = '#e8c44a';
+  G.fillRect(-8, -26, 3, 2);
+  // Left pigtail highlights
+  G.fillStyle = '#f5d868';
+  G.fillRect(-14, -27, 2, 1); G.fillRect(-12, -28, 2, 1);
+  // Left pigtail shadow
+  G.fillStyle = '#d4a830';
+  G.fillRect(-15, -24, 2, 1); G.fillRect(-13, -22, 2, 1);
+
+  // Right pigtail (puffy ball)
+  G.fillStyle = '#e8c44a';
+  G.fillRect(8, -28, 7, 7);
+  G.fillRect(7, -26, 9, 4);
+  G.fillRect(9, -29, 5, 1);
+  // Tie (scrunchie)
+  G.fillStyle = '#ff3399';
+  G.fillRect(7, -26, 2, 3);
+  // Connector hair from head to pigtail
+  G.fillStyle = '#e8c44a';
+  G.fillRect(5, -26, 3, 2);
+  // Right pigtail highlights
+  G.fillStyle = '#f5d868';
+  G.fillRect(12, -27, 2, 1); G.fillRect(10, -28, 2, 1);
+  // Right pigtail shadow
+  G.fillStyle = '#d4a830';
+  G.fillRect(13, -24, 2, 1); G.fillRect(11, -22, 2, 1);
+
+  // Headband (hot pink, across the top hair)
+  G.fillStyle = '#ff3399';
+  G.fillRect(-6, -25, 12, 2);
+
+  // Head (clean face — no hair anywhere near cheeks or jaw)
   G.fillStyle = '#ffb088';
   G.fillRect(-5, -22, 10, 10);
-  // Cheeks
-  G.fillStyle = '#ffbfa0';
-  G.fillRect(-5, -16, 2, 2); G.fillRect(3, -16, 2, 2);
+  // Forehead warmth
+  G.fillStyle = '#ffc0a0';
+  G.fillRect(-4, -22, 8, 2);
+  // Soft rosy cheeks
+  G.fillStyle = '#ffaaaa';
+  G.fillRect(-5, -16, 2, 1); G.fillRect(3, -16, 2, 1);
 
-  // Eyes
+  // Eyes (round, friendly)
   G.fillStyle = '#fff';
   G.fillRect(-4, -20, 3, 3); G.fillRect(1, -20, 3, 3);
-  G.fillStyle = '#346';
+  // Bright lower eye
+  G.fillStyle = '#eef';
+  G.fillRect(-4, -18, 3, 1); G.fillRect(1, -18, 3, 1);
+  // Iris (blue)
+  G.fillStyle = '#4488bb';
   G.fillRect(-3, -19, 2, 2); G.fillRect(2, -19, 2, 2);
-  // Eyelashes
-  G.fillStyle = '#432';
-  G.fillRect(-4, -21, 3, 1); G.fillRect(1, -21, 3, 1);
-
-  // Smile
-  G.fillStyle = '#c44';
-  G.fillRect(-3, -14, 6, 2);
+  // Pupil
+  G.fillStyle = '#111';
+  G.fillRect(-3, -19, 1, 1); G.fillRect(2, -19, 1, 1);
+  // Eye sparkle
   G.fillStyle = '#fff';
-  G.fillRect(-2, -14, 4, 1);
+  G.fillRect(-2, -20, 1, 1); G.fillRect(3, -20, 1, 1);
 
-  // Earrings (big hoops, very 80s)
-  G.fillStyle = '#ffdd00';
-  G.fillRect(-7, -18, 2, 4);
-  G.fillRect(5, -18, 2, 4);
+  // Eyelashes (soft, rounded — even across the top)
+  G.fillStyle = '#332';
+  G.fillRect(-4, -21, 3, 1); G.fillRect(1, -21, 3, 1);
+  // Gentle outer curl (1px, not angular)
+  G.fillRect(-5, -21, 1, 1); G.fillRect(4, -21, 1, 1);
 
-  // ── BIG BLONDE 80s HAIR ──
-  G.fillStyle = '#e8c44a'; // golden blonde
-  // Volume on top (poofy)
-  G.fillRect(-8, -32, 16, 12);
-  // Extra volume on sides (feathered)
-  G.fillRect(-10, -28, 20, 8);
-  G.fillRect(-11, -26, 22, 4);
-  // Side wings that frame face
-  G.fillRect(-11, -24, 3, 8);
-  G.fillRect(8, -24, 3, 8);
-  // Top poof
-  G.fillRect(-6, -34, 12, 3);
-
-  // Hair highlights (lighter blonde streaks)
-  G.fillStyle = '#f5d868';
-  G.fillRect(-5, -32, 3, 2);
-  G.fillRect(2, -31, 3, 2);
-  G.fillRect(-8, -27, 2, 3);
-  G.fillRect(7, -26, 2, 3);
-  G.fillRect(-3, -33, 2, 1);
-  G.fillRect(3, -34, 2, 1);
-  // Darker streaks
+  // Eyebrows (thin blonde arches, high up)
   G.fillStyle = '#d4a830';
-  G.fillRect(-9, -25, 2, 2);
-  G.fillRect(8, -24, 2, 2);
-  G.fillRect(-4, -30, 2, 1);
-  G.fillRect(4, -29, 2, 1);
+  G.fillRect(-4, -22, 3, 1); G.fillRect(1, -22, 3, 1);
 
-  // Headband (hot pink)
-  G.fillStyle = '#ff3399';
-  G.fillRect(-10, -27, 20, 2);
+  // Nose (tiny dot)
+  G.fillStyle = '#f0a070';
+  G.fillRect(0, -17, 1, 1);
+
+  // Gentle smile (soft pink, small)
+  G.fillStyle = '#ff6699';
+  G.fillRect(-1, -14, 2, 1);
+
+  // Big hoop earrings (silver, dangling — 80s bling)
+  G.fillStyle = '#c0c0c0';
+  G.fillRect(-7, -18, 1, 5); G.fillRect(6, -18, 1, 5);
+  G.fillRect(-7, -13, 3, 1); G.fillRect(5, -13, 3, 1);
+  G.fillRect(-5, -18, 1, 5); G.fillRect(4, -18, 1, 5);
+  // Earring sparkle
+  G.fillStyle = '#fff';
+  G.fillRect(-7, -17, 1, 1); G.fillRect(6, -16, 1, 1);
+  G.fillRect(-5, -15, 1, 1); G.fillRect(4, -14, 1, 1);
+
+  // Blush shimmer (80s glam)
+  G.fillStyle = 'rgba(255,150,200,0.4)';
+  G.fillRect(-5, -17, 2, 2); G.fillRect(3, -17, 2, 2);
 
   G.restore();
 
@@ -625,9 +689,6 @@ function drawZelime(x, y, armRaise, scale) {
   G.font = 'bold ' + Math.round(10 * S) + 'px monospace';
   G.textAlign = 'center';
   G.fillText('ZELIME', px, py - Math.round(36 * S));
-  G.fillStyle = '#ff88cc';
-  G.font = Math.round(8 * S) + 'px monospace';
-  G.fillText('REF', px, py - Math.round(27 * S));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -848,7 +909,14 @@ function updatePuck() {
   if (puck.x >= GOAL_R.x && puck.y > GOAL_R.y && puck.y < GOAL_R.y + GOAL_R.h) goalScored(0);
 
   teams.flat().forEach(p => {
-    if (!puck.owner && dist(p, puck) < p.sp.size + 5) { puck.owner = p; sfxHit(); }
+    if (!puck.owner && dist(p, puck) < p.sp.size + 5) {
+      puck.owner = p; sfxHit();
+      // Auto-select teammate who picks up puck
+      if (p.team === 0) {
+        const idx = teams[0].indexOf(p);
+        if (idx >= 0) selIdx = idx;
+      }
+    }
   });
 }
 
@@ -883,6 +951,27 @@ function shoot(p, dirX, dirY) {
   puck.vx = (dx / d) * pow + p.vx * 0.3;
   puck.vy = (dy / d) * pow + p.vy * 0.3;
   spawnIce(p.x + p.facing * 20, p.y + 5, 6);
+  sfxShoot();
+}
+
+function slapShot(p, dirX, dirY) {
+  if (puck.owner !== p) return;
+  puck.owner = null;
+  puck.lastShooter = p.sp.name;
+  let dx, dy;
+  if (dirX || dirY) {
+    dx = dirX || 0; dy = dirY || 0;
+  } else {
+    const tx = p.team === 0 ? RINK.x + RINK.w + 10 : RINK.x - 10;
+    const ty = RCY + (Math.random() - 0.5) * GOAL_H * 0.5;
+    dx = tx - p.x; dy = ty - p.y;
+  }
+  const d = Math.hypot(dx, dy) || 1;
+  const pow = SHOT_SPEED * p.sp.shotPow * 1.8;
+  puck.vx = (dx / d) * pow + p.vx * 0.4;
+  puck.vy = (dy / d) * pow + p.vy * 0.4;
+  spawnIce(p.x + p.facing * 20, p.y + 5, 12);
+  shakeX = 2; shakeY = 2;
   sfxShoot();
 }
 
@@ -957,7 +1046,7 @@ function runAI(team, skipIdx) {
       const def = p.team === 0 ? -50 : 50;
       const chase = p.role === 'Defense' ? 0.15 : 0.35;
       moveToward(p, p.hx + def + (puck.x - p.hx) * chase, p.hy + (puck.y - p.hy) * chase);
-      if (puck.owner && dist(p, puck.owner) < p.sp.size + puck.owner.sp.size + 4) bodyCheck(p, puck.owner);
+      if (puck.owner && dist(p, puck.owner) < p.sp.size + puck.owner.sp.size + 18) bodyCheck(p, puck.owner);
     }
   });
 }
@@ -1033,24 +1122,42 @@ function update() {
   }
 
   // Atari-style: one button (SPACE) does everything contextually
+  // Double-tap SPACE = slap shot (first tap queues, second tap upgrades to slap)
   if (pressed(' ')) {
+    const now = Date.now();
+    let sx = 0, sy = 0;
+    if (keys['ArrowLeft'] || keys['a']) sx--;
+    if (keys['ArrowRight'] || keys['d']) sx++;
+    if (keys['ArrowUp'] || keys['w']) sy--;
+    if (keys['ArrowDown'] || keys['s']) sy++;
+
     if (puck.owner === s) {
-      // Have puck: arrows held = directional shot, no arrows = pass
-      let sx = 0, sy = 0;
-      if (keys['ArrowLeft'] || keys['a']) sx--;
-      if (keys['ArrowRight'] || keys['d']) sx++;
-      if (keys['ArrowUp'] || keys['w']) sy--;
-      if (keys['ArrowDown'] || keys['s']) sy++;
-      if (sx || sy) {
-        shoot(s, sx, sy);
+      if (spaceQueued && (now - lastSpaceTime) < DOUBLE_TAP_MS) {
+        // Double-tap: slap shot!
+        slapShot(s, sx || spaceQueueDir.x, sy || spaceQueueDir.y);
+        spaceQueued = false;
+      } else {
+        // First tap: queue it, wait for possible second tap
+        spaceQueued = true;
+        spaceQueueDir = { x: sx, y: sy };
+        lastSpaceTime = now;
+      }
+    } else {
+      spaceQueued = false;
+      const opp = teams[1].filter(p => dist(p, s) < s.sp.size + p.sp.size + 24)
+        .sort((a, b) => dist(a, s) - dist(b, s))[0];
+      if (opp && puck.owner === opp) bodyCheck(s, opp);
+    }
+  }
+  // Execute queued single-tap after the double-tap window expires
+  if (spaceQueued && (Date.now() - lastSpaceTime) >= DOUBLE_TAP_MS) {
+    spaceQueued = false;
+    if (puck.owner === s) {
+      if (spaceQueueDir.x || spaceQueueDir.y) {
+        shoot(s, spaceQueueDir.x, spaceQueueDir.y);
       } else {
         pass(s);
       }
-    } else {
-      // No puck: steal from nearby opponent
-      const opp = teams[1].filter(p => dist(p, s) < s.sp.size + p.sp.size + 10)
-        .sort((a, b) => dist(a, s) - dist(b, s))[0];
-      if (opp && puck.owner === opp) bodyCheck(s, opp);
     }
   }
 
@@ -1064,11 +1171,45 @@ function update() {
     if (best >= 0) selIdx = best;
   }
 
-  teams.flat().forEach(p => {
+  const allPlayers = teams.flat();
+  allPlayers.forEach(p => {
+    // Cap velocity
+    const spd = Math.hypot(p.vx, p.vy);
+    if (spd > MAX_PLAYER_SPEED) {
+      p.vx = (p.vx / spd) * MAX_PLAYER_SPEED;
+      p.vy = (p.vy / spd) * MAX_PLAYER_SPEED;
+    }
     p.x += p.vx; p.y += p.vy;
     p.vx *= FRICTION; p.vy *= FRICTION;
     constrainRink(p);
   });
+  // Player-player collision (push apart)
+  for (let i = 0; i < allPlayers.length; i++) {
+    for (let j = i + 1; j < allPlayers.length; j++) {
+      const a = allPlayers[i], b = allPlayers[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy);
+      const minD = a.sp.size + b.sp.size;
+      if (d < minD && d > 0.1) {
+        const overlap = (minD - d) / 2;
+        const nx = dx / d, ny = dy / d;
+        a.x -= nx * overlap; a.y -= ny * overlap;
+        b.x += nx * overlap; b.y += ny * overlap;
+        // Bounce velocities slightly
+        const relV = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+        if (relV > 0) {
+          a.vx -= nx * relV * 0.4; a.vy -= ny * relV * 0.4;
+          b.vx += nx * relV * 0.4; b.vy += ny * relV * 0.4;
+        }
+      }
+    }
+  }
+
+  // Auto-steal: selected player bumping into puck carrier takes it
+  const s2 = sel();
+  if (puck.owner && puck.owner.team === 1 && dist(s2, puck.owner) < s2.sp.size + puck.owner.sp.size + 8) {
+    bodyCheck(s2, puck.owner);
+  }
 
   runAI(teams[0], selIdx);
   runAI(teams[1], -1);
@@ -1161,28 +1302,20 @@ function draw() {
     G.fillStyle = '#ffe030'; G.font = 'bold 14px monospace';
     G.fillText("ZELIME'S 50th BIRTHDAY EDITION!", RCX, 96);
 
-    // Zelime center stage (left side) + birthday message (right side)
+    // Zelime on title screen
     drawZelime(RCX - 160, 148, 0.5 + Math.sin(Date.now() * 0.003) * 0.3, 1.4);
-    G.fillStyle = '#ff88cc'; G.font = '13px monospace'; G.textAlign = 'center';
-    G.fillText('Happy Birthday', RCX + 60, 120);
-    G.fillText('Zelime Elibol!', RCX + 60, 136);
-    G.fillStyle = '#ffe030'; G.font = '10px monospace';
-    G.fillText("Today's Referee", RCX + 60, 155);
-    G.fillStyle = '#889'; G.font = '9px monospace';
-    G.fillText("(She's turning 50!)", RCX + 60, 170);
 
     // Dino lineup - Green team
     G.fillStyle = '#ccc'; G.font = 'bold 11px monospace'; G.textAlign = 'center';
     G.fillText('GREEN DINOS (YOU)', RCX, 200);
     const dinoInfo = [
       ['trex', 'T-Rex', 'Center'],
-      ['raptor', 'Raptor', 'L.Wing'],
-      ['pterodactyl', 'Ptero', 'R.Wing'],
+      ['raptor', 'Raptor', 'Wing'],
       ['triceratops', 'Trike', 'Defense'],
       ['ankylosaurus', 'Ankylo', 'Goalie'],
     ];
     dinoInfo.forEach(([dino, name, role], i) => {
-      const dx = RCX - 160 + i * 80;
+      const dx = RCX - 120 + i * 80;
       DINO_DRAW[dino](dx, 222, 1, COL.green, COL.greenDk, COL.greenLt);
       G.fillStyle = '#bbb'; G.font = '8px monospace'; G.textAlign = 'center';
       G.fillText(name, dx, 240);
@@ -1198,16 +1331,16 @@ function draw() {
     G.fillStyle = '#ccc'; G.font = 'bold 11px monospace';
     G.fillText('RED DINOS', RCX, 282);
     dinoInfo.forEach(([dino], i) => {
-      const dx = RCX - 160 + i * 80;
+      const dx = RCX - 120 + i * 80;
       DINO_DRAW[dino](dx, 300, -1, COL.red, COL.redDk, COL.redLt);
     });
 
     // ── CONTROLS (Atari-inspired, clear layout) ──
     const ctrlY = 335;
     G.fillStyle = 'rgba(10,10,30,0.7)';
-    G.fillRect(RCX - 220, ctrlY - 10, 440, 80);
+    G.fillRect(RCX - 220, ctrlY - 10, 440, 92);
     G.strokeStyle = '#334'; G.lineWidth = 1;
-    G.strokeRect(RCX - 220, ctrlY - 10, 440, 80);
+    G.strokeRect(RCX - 220, ctrlY - 10, 440, 92);
 
     G.fillStyle = '#aab'; G.font = 'bold 10px monospace'; G.textAlign = 'center';
     G.fillText('- CONTROLS -', RCX, ctrlY + 2);
@@ -1220,14 +1353,17 @@ function draw() {
     G.fillStyle = '#ffe030'; G.fillText('SPACE + ARROWS', cx, ctrlY + 32);
     G.fillStyle = '#aab'; G.fillText('Shoot puck in that direction', cx + 180, ctrlY + 32);
 
-    G.fillStyle = '#ffe030'; G.fillText('SPACE (no arrows)', cx, ctrlY + 46);
-    G.fillStyle = '#aab'; G.fillText('Pass to nearest teammate', cx + 180, ctrlY + 46);
+    G.fillStyle = '#ffe030'; G.fillText('SPACE x2', cx, ctrlY + 46);
+    G.fillStyle = '#ff6644'; G.fillText('SLAP SHOT! (powerful)', cx + 180, ctrlY + 46);
 
-    G.fillStyle = '#ffe030'; G.fillText('SPACE near opponent', cx, ctrlY + 60);
-    G.fillStyle = '#aab'; G.fillText('Body check to steal puck', cx + 180, ctrlY + 60);
+    G.fillStyle = '#ffe030'; G.fillText('SPACE (no arrows)', cx, ctrlY + 60);
+    G.fillStyle = '#aab'; G.fillText('Pass to nearest teammate', cx + 180, ctrlY + 60);
+
+    G.fillStyle = '#ffe030'; G.fillText('SPACE near opponent', cx, ctrlY + 74);
+    G.fillStyle = '#aab'; G.fillText('Body check to steal puck', cx + 180, ctrlY + 74);
 
     G.fillStyle = '#667'; G.textAlign = 'center'; G.font = '8px monospace';
-    G.fillText('Z: Switch player to one nearest puck', RCX, ctrlY + 76);
+    G.fillText('Z: Switch player to one nearest puck', RCX, ctrlY + 88);
 
     // Start prompt
     if (Math.sin(Date.now() * 0.005) > 0) {
