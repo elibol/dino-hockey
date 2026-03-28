@@ -31,14 +31,18 @@ const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints >
 let mobileLandscape = false;
 function resize() {
   mobileLandscape = isMobileDevice && window.innerWidth > window.innerHeight;
-  const pad = mobileLandscape ? 10 : (isMobileDevice ? 160 : 60);
-  const s = Math.max(1, Math.min((innerWidth - 10) / GW, (innerHeight - pad) / GH));
+  const pad = mobileLandscape ? 10 : (isMobileDevice ? 140 : 60);
+  const w = window.innerWidth, h = window.innerHeight;
+  const s = Math.max(0.5, Math.min((w - 10) / GW, (h - pad) / GH));
   display.width = Math.round(GW * s);
   display.height = Math.round(GH * s);
+  display.style.maxWidth = '100vw';
   dc.imageSmoothingEnabled = false;
 }
 resize();
 addEventListener('resize', resize);
+if (screen.orientation) screen.orientation.addEventListener('change', () => setTimeout(resize, 100));
+addEventListener('orientationchange', () => setTimeout(resize, 100));
 
 // ═══════════════════════════════════════════════════════════
 // AUDIO
@@ -62,164 +66,164 @@ function sfxCheck() { beep(150, 0.08, 'sawtooth', 0.1); }
 function sfxBirthday() { [523,523,587,523,698,659].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'square', 0.08), i * 220)); }
 
 // ═══════════════════════════════════════════════════════════
-// 80s RETRO SYNTH MUSIC
+// 80s TV THEME SYNTH MUSIC
 // ═══════════════════════════════════════════════════════════
 let musicPlaying = false;
 let musicNodes = [];
-const BPM = 130;
+let musicLoopInterval = null;
+const BPM = 140;
 const BEAT = 60 / BPM;
 
 function stopMusic() {
   musicNodes.forEach(n => { try { n.stop(); } catch(e) {} });
   musicNodes = [];
   musicPlaying = false;
+  if (musicLoopInterval) { clearInterval(musicLoopInterval); musicLoopInterval = null; }
 }
 
 function startMusic() {
   if (!ac || musicPlaying) return;
   musicPlaying = true;
 
-  // Master gain
   const master = ac.createGain();
-  master.gain.value = 0.12;
+  master.gain.value = 0.10;
   master.connect(ac.destination);
 
-  const now = ac.currentTime + 0.05;
-  const loopLen = BEAT * 32; // 32 beats per loop
+  const loopLen = BEAT * 32;
 
-  // --- KICK DRUM (noise burst) ---
-  function schedKick(t) {
+  function note(t, freq, dur, type, vol) {
     const o = ac.createOscillator(), g = ac.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(150, t);
-    o.frequency.exponentialRampToValueAtTime(40, t + 0.08);
-    g.gain.setValueAtTime(0.6, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-    o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + 0.15);
-    musicNodes.push(o);
-  }
-
-  // --- HI-HAT (high noise via square) ---
-  function schedHat(t, open) {
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.type = 'square'; o.frequency.value = 6000 + Math.random() * 2000;
-    const dur = open ? 0.12 : 0.04;
-    g.gain.setValueAtTime(open ? 0.15 : 0.1, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + dur);
-    musicNodes.push(o);
-  }
-
-  // --- BASS (square wave, synth bass line) ---
-  function schedBass(t, freq, dur) {
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.type = 'square'; o.frequency.value = freq;
-    g.gain.setValueAtTime(0.3, t);
-    g.gain.setValueAtTime(0.25, t + dur * 0.5);
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur - 0.01);
     o.connect(g); g.connect(master);
     o.start(t); o.stop(t + dur);
     musicNodes.push(o);
   }
 
-  // --- LEAD (sawtooth, catchy melody) ---
-  function schedLead(t, freq, dur) {
+  // Kick with punch
+  function kick(t) {
     const o = ac.createOscillator(), g = ac.createGain();
-    o.type = 'sawtooth'; o.frequency.value = freq;
-    g.gain.setValueAtTime(0.18, t);
-    g.gain.setValueAtTime(0.12, t + dur * 0.3);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur - 0.01);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(35, t + 0.1);
+    g.gain.setValueAtTime(0.7, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
     o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + dur);
+    o.start(t); o.stop(t + 0.18);
     musicNodes.push(o);
   }
 
-  // --- ARP (triangle, sparkly arpeggios) ---
-  function schedArp(t, freq, dur) {
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.type = 'triangle'; o.frequency.value = freq;
-    g.gain.setValueAtTime(0.1, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(master);
-    o.start(t); o.stop(t + dur);
-    musicNodes.push(o);
+  // Snare (noise-ish)
+  function snare(t) {
+    [1200, 1800, 2400, 3600].forEach(f => {
+      note(t, f + Math.random() * 400, 0.08, 'square', 0.06);
+    });
+    note(t, 200, 0.07, 'triangle', 0.15);
+  }
+
+  // Hat
+  function hat(t, open) {
+    note(t, 7000 + Math.random() * 3000, open ? 0.1 : 0.03, 'square', open ? 0.08 : 0.06);
+  }
+
+  // Synth stab (chord hit)
+  function stab(t, freqs, dur) {
+    freqs.forEach(f => note(t, f, dur, 'sawtooth', 0.08));
   }
 
   function scheduleLoop(startT) {
-    // Kick: four-on-the-floor
+    const B = BEAT;
+    // ── DRUMS: Kick on 1&3, snare on 2&4, hats on 8ths, open hat on & of 4 ──
     for (let i = 0; i < 32; i++) {
-      schedKick(startT + i * BEAT);
+      const t = startT + i * B;
+      if (i % 2 === 0) kick(t);
+      if (i % 2 === 1) snare(t);
+      hat(t, false);
+      hat(t + B * 0.5, i % 4 === 3); // open hat on & of 4
     }
 
-    // Hi-hat: 8th notes, open on the &
-    for (let i = 0; i < 64; i++) {
-      schedHat(startT + i * BEAT * 0.5, i % 2 === 1);
-    }
-
-    // Bass line (E minor pentatonic groove, 80s synth-pop)
-    // Pattern: 8 bars of 4 beats
-    const bassNotes = [
-      82, 0, 82, 98,  82, 0, 110, 98,   // E2, _, E2, G2, E2, _, A2, G2
-      82, 0, 82, 98,  110, 123, 110, 98, // E2, _, E2, G2, A2, B2, A2, G2
-      65, 0, 65, 82,  65, 0, 82, 73,     // C2, _, C2, E2, C2, _, E2, D2
-      82, 0, 82, 98,  110, 98, 82, 73,   // E2, _, E2, G2, A2, G2, E2, D2
+    // ── BASS: Bouncy octave-jumping synth bass (C major, very 80s TV) ──
+    const bass = [
+      // Bar 1-2 (C)
+      [0, 131], [0.5, 262], [1, 131], [1.5, 0], [2, 131], [2.5, 262], [3, 175], [3.5, 196],
+      // Bar 3-4 (F)
+      [4, 175], [4.5, 349], [5, 175], [5.5, 0], [6, 175], [6.5, 349], [7, 196], [7.5, 220],
+      // Bar 5-6 (G)
+      [8, 196], [8.5, 392], [9, 196], [9.5, 0], [10, 196], [10.5, 392], [11, 220], [11.5, 262],
+      // Bar 7-8 (C -> G turnaround)
+      [12, 262], [12.5, 523], [13, 262], [13.5, 247], [14, 196], [14.5, 392], [15, 196], [15.5, 165],
+      // Bar 9-12: same but busier
+      [16, 131], [16.25, 196], [16.5, 262], [17, 131], [17.5, 262], [18, 131], [18.5, 262], [19, 196], [19.5, 220],
+      [20, 175], [20.25, 220], [20.5, 349], [21, 175], [21.5, 349], [22, 175], [22.5, 262], [23, 220], [23.5, 196],
+      // Bar 13-14 (Am -> G)
+      [24, 220], [24.5, 440], [25, 220], [25.5, 262], [26, 196], [26.5, 392], [27, 196], [27.5, 165],
+      // Bar 15-16 (F -> G -> C!)
+      [28, 175], [28.5, 349], [29, 196], [29.5, 392], [30, 262], [30.5, 523], [31, 262], [31.5, 196],
     ];
-    bassNotes.forEach((f, i) => {
-      if (f > 0) schedBass(startT + i * BEAT, f, BEAT * 0.85);
+    bass.forEach(([beat, f]) => {
+      if (f > 0) note(startT + beat * B, f, B * 0.4, 'square', 0.25);
     });
 
-    // Lead melody (catchy 80s hook, higher octave)
-    const leadNotes = [
-      // Bar 1-2: ascending hook
-      [0, 659, 1.5], [1.5, 784, 0.5], [2, 880, 1], [3, 784, 0.5], [3.5, 659, 0.5],
-      // Bar 3-4: response phrase
-      [4, 587, 1], [5, 659, 0.5], [5.5, 784, 0.5], [6, 659, 2],
-      // Bar 5-6: variation
-      [8, 523, 1], [9, 587, 0.5], [9.5, 659, 1], [10.5, 784, 0.5], [11, 880, 1],
-      // Bar 7-8: resolution
-      [12, 784, 1.5], [13.5, 659, 0.5], [14, 587, 1.5], [15.5, 523, 0.5],
-      // Bar 9-12: repeat with octave variation
-      [16, 659, 1], [17, 784, 1], [18, 880, 0.5], [18.5, 988, 0.5], [19, 880, 1],
-      [20, 784, 0.5], [20.5, 659, 0.5], [21, 784, 1], [22, 659, 2],
-      // Bar 13-16: big finish phrase
-      [24, 523, 1], [25, 659, 1], [26, 784, 1], [27, 880, 1],
-      [28, 988, 1.5], [29.5, 880, 0.5], [30, 784, 1.5], [31.5, 659, 0.5],
+    // ── LEAD: Catchy 80s TV hook (think Knight Rider / Miami Vice / A-Team) ──
+    const lead = [
+      // Phrase 1: bold opening riff
+      [0, 523, 0.75], [0.75, 587, 0.25], [1, 659, 0.5], [1.5, 784, 0.5],
+      [2, 880, 1.5], [3.5, 784, 0.5],
+      // Phrase 2: answer
+      [4, 698, 0.5], [4.5, 659, 0.5], [5, 523, 1], [6, 587, 0.75], [6.75, 523, 0.25], [7, 440, 1],
+      // Phrase 3: build up
+      [8, 523, 0.5], [8.5, 523, 0.25], [8.75, 587, 0.25], [9, 659, 0.5], [9.5, 784, 0.5],
+      [10, 880, 0.5], [10.5, 988, 0.5], [11, 1047, 1],
+      // Phrase 4: cool descending resolution
+      [12, 988, 0.5], [12.5, 880, 0.5], [13, 784, 0.75], [13.75, 659, 0.25],
+      [14, 587, 1], [15, 523, 0.5], [15.5, 587, 0.5],
+      // Phrase 5: repeat hook up an octave feel
+      [16, 659, 0.5], [16.5, 784, 0.5], [17, 880, 0.5], [17.5, 784, 0.5],
+      [18, 659, 0.5], [18.5, 784, 0.5], [19, 880, 1],
+      // Phrase 6: syncopated fun bit
+      [20, 698, 0.25], [20.5, 784, 0.25], [21, 880, 0.5], [21.5, 784, 0.5],
+      [22, 698, 0.5], [22.5, 659, 0.5], [23, 587, 1],
+      // Phrase 7: triumphant climb
+      [24, 440, 0.5], [24.5, 523, 0.5], [25, 587, 0.5], [25.5, 659, 0.5],
+      [26, 784, 0.5], [26.5, 880, 0.5], [27, 988, 1],
+      // Phrase 8: big finish
+      [28, 1047, 1], [29, 988, 0.5], [29.5, 880, 0.5], [30, 784, 1.5], [31.5, 659, 0.5],
     ];
-    leadNotes.forEach(([beat, freq, dur]) => {
-      schedLead(startT + beat * BEAT, freq, dur * BEAT * 0.9);
+    lead.forEach(([beat, f, dur]) => {
+      note(startT + beat * B, f, dur * B * 0.85, 'sawtooth', 0.14);
     });
 
-    // Arp: 16th note arpeggios on chord tones
-    const arpChords = [
-      [330, 392, 494, 659],  // Em
-      [330, 392, 494, 659],  // Em
-      [262, 330, 392, 523],  // C
-      [330, 392, 494, 659],  // Em
+    // ── CHORD STABS: Synth power chords on the & hits ──
+    const chords = [
+      [0.5, [523, 659, 784]], [2.5, [523, 659, 784]],
+      [4.5, [349, 440, 523]], [6.5, [349, 440, 523]],
+      [8.5, [392, 494, 587]], [10.5, [392, 494, 587]],
+      [12.5, [523, 659, 784]], [14.5, [392, 494, 587]],
+      [16.5, [523, 659, 784]], [18.5, [523, 659, 784]],
+      [20.5, [349, 440, 523]], [22.5, [349, 440, 523]],
+      [24.5, [440, 523, 659]], [26.5, [392, 494, 587]],
+      [28.5, [349, 440, 523]], [30, [392, 494, 587]], [31, [523, 659, 784]],
     ];
-    for (let bar = 0; bar < 4; bar++) {
-      const chord = arpChords[bar];
-      for (let i = 0; i < 32; i++) {
-        const t = startT + (bar * 8 + i * 0.25) * BEAT;
-        schedArp(t, chord[i % chord.length], BEAT * 0.2);
-      }
-    }
+    chords.forEach(([beat, freqs]) => {
+      stab(startT + beat * B, freqs, B * 0.35);
+    });
+
+    // ── SPARKLE ARP: Fast triangle runs on transitions ──
+    const sparkle = [262, 330, 392, 523, 659, 784, 1047];
+    sparkle.forEach((f, i) => {
+      note(startT + (15.5 + i * 0.07) * B, f, B * 0.15, 'triangle', 0.06);
+      note(startT + (31.5 + i * 0.07) * B, f, B * 0.15, 'triangle', 0.06);
+    });
   }
 
-  // Schedule first loop
-  scheduleLoop(now);
-
-  // Re-schedule on a timer to loop continuously
+  scheduleLoop(ac.currentTime + 0.05);
   musicLoopInterval = setInterval(() => {
-    if (!musicPlaying) { clearInterval(musicLoopInterval); return; }
-    // Clear old nodes
-    musicNodes = musicNodes.filter(n => {
-      try { return n.context.currentTime < n.stop.endTime; } catch(e) { return false; }
-    });
+    if (!musicPlaying) { clearInterval(musicLoopInterval); musicLoopInterval = null; return; }
+    musicNodes = musicNodes.filter(n => { try { n.playbackState; return true; } catch(e) { return false; } });
     scheduleLoop(ac.currentTime + 0.05);
   }, loopLen * 1000 - 200);
 }
-let musicLoopInterval = null;
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTS
@@ -1497,6 +1501,10 @@ function update() {
     if (keys['ArrowRight'] || keys['d']) sx++;
     if (keys['ArrowUp'] || keys['w']) sy--;
     if (keys['ArrowDown'] || keys['s']) sy++;
+    // On mobile, use joystick direction for aiming if no keyboard arrows
+    if (!sx && !sy && isMobile && (Math.abs(dpadDx) > 0.2 || Math.abs(dpadDy) > 0.2)) {
+      sx = dpadDx; sy = dpadDy;
+    }
 
     if (puck.owner === s) {
       if (spaceQueued && (now - lastSpaceTime) < DOUBLE_TAP_MS) {
