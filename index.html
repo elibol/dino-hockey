@@ -6,7 +6,8 @@
 <title>DINO HOCKEY - Zelime's 50th Birthday!</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0a1a;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;flex-direction:column;touch-action:none;user-select:none;-webkit-user-select:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a1a;touch-action:none;user-select:none;-webkit-user-select:none}
+body{display:flex;justify-content:center;align-items:center;flex-direction:column}
 canvas{image-rendering:pixelated;image-rendering:crisp-edges}
 #info{color:#667;font:13px monospace;margin-top:8px;text-align:center}
 .mobile-hide{display:block}
@@ -30,19 +31,23 @@ game.width = GW; game.height = GH;
 const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 let mobileLandscape = false;
 function resize() {
-  mobileLandscape = isMobileDevice && window.innerWidth > window.innerHeight;
-  const pad = mobileLandscape ? 10 : (isMobileDevice ? 140 : 60);
   const w = window.innerWidth, h = window.innerHeight;
-  const s = Math.max(0.5, Math.min((w - 10) / GW, (h - pad) / GH));
+  mobileLandscape = isMobileDevice && w > h;
+  // Mobile-first: game always fills the full viewport
+  // On desktop, leave a small margin for the info bar
+  const margin = isMobileDevice ? 0 : 50;
+  const s = Math.min(w / GW, (h - margin) / GH);
   display.width = Math.round(GW * s);
   display.height = Math.round(GH * s);
-  display.style.maxWidth = '100vw';
+  display.style.width = display.width + 'px';
+  display.style.height = display.height + 'px';
   dc.imageSmoothingEnabled = false;
 }
 resize();
+// Listen for every way orientation/size can change
 addEventListener('resize', resize);
-if (screen.orientation) screen.orientation.addEventListener('change', () => setTimeout(resize, 100));
-addEventListener('orientationchange', () => setTimeout(resize, 100));
+addEventListener('orientationchange', () => { setTimeout(resize, 50); setTimeout(resize, 200); });
+if (screen.orientation) screen.orientation.addEventListener('change', () => { setTimeout(resize, 50); setTimeout(resize, 200); });
 
 // ═══════════════════════════════════════════════════════════
 // AUDIO
@@ -265,63 +270,49 @@ addEventListener('keyup', e => { keys[e.key] = false; });
 function pressed(k) { if (jp[k]) { jp[k] = false; return true; } return false; }
 
 // ═══════════════════════════════════════════════════════════
-// MOBILE TOUCH CONTROLS
+// MOBILE TOUCH CONTROLS (full-screen overlay, always on top)
 // ═══════════════════════════════════════════════════════════
 const isMobile = isMobileDevice;
-let dpadTouch = null;   // tracking touch ID for d-pad
-let dpadDx = 0, dpadDy = 0; // normalized direction
-const DPAD_R = 50;      // d-pad radius
-let dpadCx = 0, dpadCy = 0; // d-pad center (set on resize)
-
-function updateMobileLayout() {
-  if (!isMobile) return;
-  const r = display.getBoundingClientRect();
-  dpadCx = r.left + 80;
-  dpadCy = r.bottom + 70;
-}
+let dpadTouch = null, actionTouch = null;
+let dpadDx = 0, dpadDy = 0;
+let dpadCx = 0, dpadCy = 0;
+const DPAD_R = 50;
 
 if (isMobile) {
-  // Prevent scrolling/zooming
   document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
   function getDpadDir(tx, ty) {
     const dx = tx - dpadCx, dy = ty - dpadCy;
     const d = Math.hypot(dx, dy);
-    if (d < 12) return { x: 0, y: 0 };
+    if (d < 10) return { x: 0, y: 0 };
     return { x: dx / d, y: dy / d };
   }
 
   function applyDpad(dir) {
-    // Clear previous d-pad keys
-    keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
-    keys['ArrowUp'] = false; keys['ArrowDown'] = false;
-    // Apply based on direction thresholds
-    if (dir.x < -0.3) keys['ArrowLeft'] = true;
-    if (dir.x > 0.3) keys['ArrowRight'] = true;
-    if (dir.y < -0.3) keys['ArrowUp'] = true;
-    if (dir.y > 0.3) keys['ArrowDown'] = true;
+    keys['ArrowLeft'] = dir.x < -0.3;
+    keys['ArrowRight'] = dir.x > 0.3;
+    keys['ArrowUp'] = dir.y < -0.3;
+    keys['ArrowDown'] = dir.y > 0.3;
   }
 
-  display.addEventListener('touchstart', e => {
+  // All touch events on document (full screen)
+  document.addEventListener('touchstart', e => {
     initAudio();
+    const midX = window.innerWidth / 2;
     for (const t of e.changedTouches) {
-      const tx = t.clientX, ty = t.clientY;
-      const r = display.getBoundingClientRect();
-      // Left half = d-pad, right half = action button
-      if (tx < r.left + r.width / 2) {
+      if (t.clientX < midX) {
         dpadTouch = t.identifier;
-        // Re-center d-pad on where they put their thumb
-        dpadCx = tx;
-        dpadCy = ty;
+        dpadCx = t.clientX;
+        dpadCy = t.clientY;
         dpadDx = 0; dpadDy = 0;
       } else {
-        // Action button = SPACE press
+        actionTouch = t.identifier;
         jp[' '] = true; keys[' '] = true;
       }
     }
   }, { passive: false });
 
-  display.addEventListener('touchmove', e => {
+  document.addEventListener('touchmove', e => {
     for (const t of e.changedTouches) {
       if (t.identifier === dpadTouch) {
         const dir = getDpadDir(t.clientX, t.clientY);
@@ -337,121 +328,47 @@ if (isMobile) {
         dpadTouch = null; dpadDx = 0; dpadDy = 0;
         keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
         keys['ArrowUp'] = false; keys['ArrowDown'] = false;
-      } else {
+      }
+      if (t.identifier === actionTouch) {
+        actionTouch = null;
         keys[' '] = false;
       }
     }
   }
-  display.addEventListener('touchend', endTouch);
-  display.addEventListener('touchcancel', endTouch);
-
-  // Also handle touches outside canvas for the d-pad area
-  document.addEventListener('touchstart', e => {
-    initAudio();
-    for (const t of e.changedTouches) {
-      if (e.target === display) return; // handled above
-      const r = display.getBoundingClientRect();
-      const tx = t.clientX, ty = t.clientY;
-      if (tx < r.left + r.width / 2) {
-        dpadTouch = t.identifier;
-        dpadCx = tx; dpadCy = ty;
-        dpadDx = 0; dpadDy = 0;
-      } else {
-        jp[' '] = true; keys[' '] = true;
-      }
-    }
-  }, { passive: false });
-  document.addEventListener('touchmove', e => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === dpadTouch) {
-        const dir = getDpadDir(t.clientX, t.clientY);
-        dpadDx = dir.x; dpadDy = dir.y;
-        applyDpad(dir);
-      }
-    }
-  }, { passive: false });
   document.addEventListener('touchend', endTouch);
   document.addEventListener('touchcancel', endTouch);
 }
 
-function drawMobileControls() {
-  if (!isMobile) return;
-  updateMobileLayout();
-  const r = display.getBoundingClientRect();
-  // Draw on a full-window overlay canvas
-  const pad = 80;
-  const ly = r.bottom + 15;
-
-  // D-pad area (left side)
-  const lx = r.left + pad;
-  dc.save();
-  // We need to draw in screen coords but dc is sized to display canvas
-  // Instead draw below the game canvas using absolute positioned elements
-  dc.restore();
-}
-
-// Create overlay for mobile controls
+// Overlay canvas for drawing touch controls (always full-screen)
 let mobileOverlay = null;
 if (isMobile) {
   mobileOverlay = document.createElement('canvas');
-  mobileOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:10';
+  mobileOverlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10';
   document.body.appendChild(mobileOverlay);
 
   function drawOverlay() {
+    const w = window.innerWidth, h = window.innerHeight;
+    mobileOverlay.width = w;
+    mobileOverlay.height = h;
     const oc = mobileOverlay.getContext('2d');
-    mobileOverlay.width = window.innerWidth;
-    mobileOverlay.height = window.innerHeight;
-    const r = display.getBoundingClientRect();
-    const land = mobileLandscape;
 
-    // In landscape: controls overlay on game; in portrait: below game
-    const defDpadCx = land ? r.left + 70 : r.left + 80;
-    const defDpadCy = land ? r.bottom - 70 : r.bottom + 70;
-    const cx = dpadTouch !== null ? dpadCx : defDpadCx;
-    const cy = dpadTouch !== null ? dpadCy : defDpadCy;
+    // Joystick (bottom-left, always overlaid)
+    const jx = dpadTouch !== null ? dpadCx : w * 0.15;
+    const jy = dpadTouch !== null ? dpadCy : h * 0.75;
+    oc.beginPath(); oc.arc(jx, jy, DPAD_R, 0, Math.PI * 2);
+    oc.fillStyle = 'rgba(255,255,255,0.06)'; oc.fill();
+    oc.strokeStyle = 'rgba(255,255,255,0.2)'; oc.lineWidth = 2; oc.stroke();
+    // Nub
+    oc.beginPath(); oc.arc(jx + dpadDx * DPAD_R * 0.6, jy + dpadDy * DPAD_R * 0.6, 14, 0, Math.PI * 2);
+    oc.fillStyle = 'rgba(255,255,255,0.15)'; oc.fill();
 
-    // Outer ring
-    oc.beginPath();
-    oc.arc(cx, cy, DPAD_R, 0, Math.PI * 2);
-    oc.fillStyle = 'rgba(255,255,255,0.08)';
-    oc.fill();
-    oc.strokeStyle = 'rgba(255,255,255,0.25)';
-    oc.lineWidth = 2;
-    oc.stroke();
-
-    // Inner nub (shows direction)
-    const nx = cx + dpadDx * DPAD_R * 0.6;
-    const ny = cy + dpadDy * DPAD_R * 0.6;
-    oc.beginPath();
-    oc.arc(nx, ny, 16, 0, Math.PI * 2);
-    oc.fillStyle = 'rgba(255,255,255,0.2)';
-    oc.fill();
-
-    // Action button
-    const bx = land ? r.right - 70 : r.right - 80;
-    const by = land ? r.bottom - 70 : r.bottom + 70;
-    oc.beginPath();
-    oc.arc(bx, by, 36, 0, Math.PI * 2);
-    oc.fillStyle = keys[' '] ? 'rgba(255,100,50,0.35)' : 'rgba(255,255,255,0.08)';
-    oc.fill();
-    oc.strokeStyle = 'rgba(255,255,255,0.25)';
-    oc.lineWidth = 2;
-    oc.stroke();
-
-    // Button label
-    oc.fillStyle = 'rgba(255,255,255,0.5)';
-    oc.font = 'bold 11px monospace';
-    oc.textAlign = 'center';
+    // Action button (bottom-right, always overlaid)
+    const bx = w * 0.85, by = h * 0.75;
+    oc.beginPath(); oc.arc(bx, by, 34, 0, Math.PI * 2);
+    oc.fillStyle = keys[' '] ? 'rgba(255,100,50,0.3)' : 'rgba(255,255,255,0.06)'; oc.fill();
+    oc.strokeStyle = 'rgba(255,255,255,0.2)'; oc.lineWidth = 2; oc.stroke();
+    oc.fillStyle = 'rgba(255,255,255,0.4)'; oc.font = 'bold 10px monospace'; oc.textAlign = 'center';
     oc.fillText('ACTION', bx, by + 4);
-
-    // Hint text (only in portrait, skip in landscape to save space)
-    if (!land) {
-      oc.fillStyle = 'rgba(255,255,255,0.3)';
-      oc.font = '9px monospace';
-      oc.fillText('DRAG TO SKATE', cx, cy + DPAD_R + 18);
-      oc.fillText('TAP: SHOOT/PASS', bx, by + 52);
-      oc.fillText('x2: SLAP SHOT', bx, by + 64);
-    }
 
     requestAnimationFrame(drawOverlay);
   }
