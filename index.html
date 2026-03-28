@@ -28,9 +28,11 @@ const GW = 768, GH = 480;
 game.width = GW; game.height = GH;
 
 const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+let mobileLandscape = false;
 function resize() {
-  const mobileExtra = isMobileDevice ? 160 : 60;
-  const s = Math.max(1, Math.min((innerWidth - 20) / GW, (innerHeight - mobileExtra) / GH));
+  mobileLandscape = isMobileDevice && window.innerWidth > window.innerHeight;
+  const pad = mobileLandscape ? 10 : (isMobileDevice ? 160 : 60);
+  const s = Math.max(1, Math.min((innerWidth - 10) / GW, (innerHeight - pad) / GH));
   display.width = Math.round(GW * s);
   display.height = Math.round(GH * s);
   dc.imageSmoothingEnabled = false;
@@ -396,10 +398,13 @@ if (isMobile) {
     mobileOverlay.width = window.innerWidth;
     mobileOverlay.height = window.innerHeight;
     const r = display.getBoundingClientRect();
+    const land = mobileLandscape;
 
-    // D-pad: draw where thumb is (or default position)
-    const cx = dpadTouch !== null ? dpadCx : r.left + 80;
-    const cy = dpadTouch !== null ? dpadCy : r.bottom + 70;
+    // In landscape: controls overlay on game; in portrait: below game
+    const defDpadCx = land ? r.left + 70 : r.left + 80;
+    const defDpadCy = land ? r.bottom - 70 : r.bottom + 70;
+    const cx = dpadTouch !== null ? dpadCx : defDpadCx;
+    const cy = dpadTouch !== null ? dpadCy : defDpadCy;
 
     // Outer ring
     oc.beginPath();
@@ -418,9 +423,9 @@ if (isMobile) {
     oc.fillStyle = 'rgba(255,255,255,0.2)';
     oc.fill();
 
-    // Action button (right side)
-    const bx = r.right - 80;
-    const by = r.bottom + 70;
+    // Action button
+    const bx = land ? r.right - 70 : r.right - 80;
+    const by = land ? r.bottom - 70 : r.bottom + 70;
     oc.beginPath();
     oc.arc(bx, by, 36, 0, Math.PI * 2);
     oc.fillStyle = keys[' '] ? 'rgba(255,100,50,0.35)' : 'rgba(255,255,255,0.08)';
@@ -435,12 +440,14 @@ if (isMobile) {
     oc.textAlign = 'center';
     oc.fillText('ACTION', bx, by + 4);
 
-    // Hint text
-    oc.fillStyle = 'rgba(255,255,255,0.3)';
-    oc.font = '9px monospace';
-    oc.fillText('DRAG TO SKATE', cx, cy + DPAD_R + 18);
-    oc.fillText('TAP: SHOOT/PASS', bx, by + 52);
-    oc.fillText('x2: SLAP SHOT', bx, by + 64);
+    // Hint text (only in portrait, skip in landscape to save space)
+    if (!land) {
+      oc.fillStyle = 'rgba(255,255,255,0.3)';
+      oc.font = '9px monospace';
+      oc.fillText('DRAG TO SKATE', cx, cy + DPAD_R + 18);
+      oc.fillText('TAP: SHOOT/PASS', bx, by + 52);
+      oc.fillText('x2: SLAP SHOT', bx, by + 64);
+    }
 
     requestAnimationFrame(drawOverlay);
   }
@@ -1203,7 +1210,7 @@ function drawHUD() {
 
   // Controls hint
   G.fillStyle = '#446'; G.textAlign = 'right'; G.font = '9px monospace';
-  G.fillText('SPACE+Arrows:Shoot  SPACE:Pass  Z:Switch', GW - 8, 18);
+  G.fillText(isMobile ? 'Drag:Skate  Tap:Shoot/Pass  x2:Slap' : 'SPACE+Arrows:Shoot  SPACE:Pass  Z:Switch', GW - 8, 18);
 
   // Birthday ticker (below the rink, not overlapping clock)
   G.fillStyle = '#ff88cc'; G.font = 'bold 9px monospace'; G.textAlign = 'left';
@@ -1695,40 +1702,54 @@ function draw() {
       DINO_DRAW[dino](dx, 300, -1, COL.red, COL.redDk, COL.redLt);
     });
 
-    // ── CONTROLS (Atari-inspired, clear layout) ──
+    // ── CONTROLS ──
     const ctrlY = 335;
     G.fillStyle = 'rgba(10,10,30,0.7)';
-    G.fillRect(RCX - 220, ctrlY - 10, 440, 92);
+    G.fillRect(RCX - 220, ctrlY - 10, 440, isMobile ? 78 : 92);
     G.strokeStyle = '#334'; G.lineWidth = 1;
-    G.strokeRect(RCX - 220, ctrlY - 10, 440, 92);
+    G.strokeRect(RCX - 220, ctrlY - 10, 440, isMobile ? 78 : 92);
 
     G.fillStyle = '#aab'; G.font = 'bold 10px monospace'; G.textAlign = 'center';
     G.fillText('- CONTROLS -', RCX, ctrlY + 2);
 
     G.font = '9px monospace'; G.textAlign = 'left';
     const cx = RCX - 200;
-    G.fillStyle = '#ffe030'; G.fillText('ARROWS / WASD', cx, ctrlY + 18);
-    G.fillStyle = '#aab'; G.fillText('Skate around the rink', cx + 180, ctrlY + 18);
+    if (isMobile) {
+      G.fillStyle = '#ffe030'; G.fillText('DRAG (left side)', cx, ctrlY + 18);
+      G.fillStyle = '#aab'; G.fillText('Skate around the rink', cx + 180, ctrlY + 18);
 
-    G.fillStyle = '#ffe030'; G.fillText('SPACE + ARROWS', cx, ctrlY + 32);
-    G.fillStyle = '#aab'; G.fillText('Shoot puck in that direction', cx + 180, ctrlY + 32);
+      G.fillStyle = '#ffe030'; G.fillText('TAP (right side)', cx, ctrlY + 32);
+      G.fillStyle = '#aab'; G.fillText('Shoot / Pass / Steal', cx + 180, ctrlY + 32);
 
-    G.fillStyle = '#ffe030'; G.fillText('SPACE x2', cx, ctrlY + 46);
-    G.fillStyle = '#ff6644'; G.fillText('SLAP SHOT! (powerful)', cx + 180, ctrlY + 46);
+      G.fillStyle = '#ffe030'; G.fillText('DOUBLE TAP', cx, ctrlY + 46);
+      G.fillStyle = '#ff6644'; G.fillText('SLAP SHOT! (powerful)', cx + 180, ctrlY + 46);
 
-    G.fillStyle = '#ffe030'; G.fillText('SPACE (no arrows)', cx, ctrlY + 60);
-    G.fillStyle = '#aab'; G.fillText('Pass to nearest teammate', cx + 180, ctrlY + 60);
+      G.fillStyle = '#667'; G.textAlign = 'center'; G.font = '8px monospace';
+      G.fillText('Skate into opponents to steal the puck', RCX, ctrlY + 62);
+    } else {
+      G.fillStyle = '#ffe030'; G.fillText('ARROWS / WASD', cx, ctrlY + 18);
+      G.fillStyle = '#aab'; G.fillText('Skate around the rink', cx + 180, ctrlY + 18);
 
-    G.fillStyle = '#ffe030'; G.fillText('SPACE near opponent', cx, ctrlY + 74);
-    G.fillStyle = '#aab'; G.fillText('Body check to steal puck', cx + 180, ctrlY + 74);
+      G.fillStyle = '#ffe030'; G.fillText('SPACE + ARROWS', cx, ctrlY + 32);
+      G.fillStyle = '#aab'; G.fillText('Shoot puck in that direction', cx + 180, ctrlY + 32);
 
-    G.fillStyle = '#667'; G.textAlign = 'center'; G.font = '8px monospace';
-    G.fillText('Z: Switch player to one nearest puck', RCX, ctrlY + 88);
+      G.fillStyle = '#ffe030'; G.fillText('SPACE x2', cx, ctrlY + 46);
+      G.fillStyle = '#ff6644'; G.fillText('SLAP SHOT! (powerful)', cx + 180, ctrlY + 46);
+
+      G.fillStyle = '#ffe030'; G.fillText('SPACE (no arrows)', cx, ctrlY + 60);
+      G.fillStyle = '#aab'; G.fillText('Pass to nearest teammate', cx + 180, ctrlY + 60);
+
+      G.fillStyle = '#ffe030'; G.fillText('SPACE near opponent', cx, ctrlY + 74);
+      G.fillStyle = '#aab'; G.fillText('Body check to steal puck', cx + 180, ctrlY + 74);
+
+      G.fillStyle = '#667'; G.textAlign = 'center'; G.font = '8px monospace';
+      G.fillText('Z: Switch player to one nearest puck', RCX, ctrlY + 88);
+    }
 
     // Start prompt
     if (Math.sin(Date.now() * 0.005) > 0) {
       G.fillStyle = '#fff'; G.font = 'bold 18px monospace'; G.textAlign = 'center';
-      G.fillText('PRESS SPACE TO START', RCX, 440);
+      G.fillText(isMobile ? 'TAP TO START' : 'PRESS SPACE TO START', RCX, 440);
     }
 
     G.fillStyle = '#889'; G.font = '10px monospace'; G.textAlign = 'center';
@@ -1761,7 +1782,7 @@ function draw() {
 
     if (Math.sin(Date.now() * 0.005) > 0) {
       G.fillStyle = '#aaa'; G.font = 'bold 16px monospace';
-      G.fillText('PRESS SPACE FOR REMATCH', RCX, 380);
+      G.fillText(isMobile ? 'TAP FOR REMATCH' : 'PRESS SPACE FOR REMATCH', RCX, 380);
     }
   }
 
